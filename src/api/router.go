@@ -5,19 +5,22 @@ import (
 	"net/http"
 
 	"github.com/advent-calendar-backend/src/api/handlers"
+	"github.com/advent-calendar-backend/src/configs"
 	"github.com/gin-gonic/gin"
 )
 
-func Router(r *gin.Engine, databaseConn *sql.DB) {
+func Router(r *gin.Engine, databaseConn *sql.DB, cfg *configs.Config) {
 
 	r.Use(func(c *gin.Context) {
 		c.Set("db", databaseConn)
 		c.Next()
 	})
 
+	jwtByteKey := []byte(cfg.Jwt.My_super_secret_key)
+
 	authGroup := r.Group("/auth")
 	{
-		authGroup.POST("/login", handlers.Login)
+		authGroup.POST("/login", handlers.Login(jwtByteKey))
 		authGroup.POST("/register", handlers.Register)
 
 		// authGroup.GET("/google/login", handlers.GoogleLogin)
@@ -28,7 +31,7 @@ func Router(r *gin.Engine, databaseConn *sql.DB) {
 	}
 
 	protected := r.Group("/")
-	protected.Use(handlers.AuthMiddleware())
+	protected.Use(handlers.AuthMiddleware(jwtByteKey))
 
 	apiGroup := protected.Group("/api")
 	{

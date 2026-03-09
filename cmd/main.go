@@ -16,5 +16,5 @@ func main() {
 	databaseConn := database.ConnectPostgreSql(cfg)
 
 	r := gin.Default()
-	api.Router(r, databaseConn)
+	api.Router(r, databaseConn, cfg)
 }

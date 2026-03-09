@@ -9,6 +9,11 @@ import (
 
 type Config struct {
 	Database Database
+	Jwt      Jwt
+}
+
+type Jwt struct {
+	My_super_secret_key string `env:"MY_SUPER_SECRET_KEY"`
 }
 
 type Database struct {

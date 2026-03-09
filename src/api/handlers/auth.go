@@ -11,9 +11,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// TODO: Move jwtKey to configs/config.env and read via readconf.go
-var jwtKey = []byte("my_super_secret_key")
-
 type Credentials struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
@@ -65,47 +62,49 @@ func Register(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "User successfully registered"})
 }
 
-func Login(c *gin.Context) {
-	var creds Credentials
-	if err := c.ShouldBindJSON(&creds); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
-		return
-	}
+func Login(jwtKey []byte) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var creds Credentials
+		if err := c.ShouldBindJSON(&creds); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+			return
+		}
 
-	dbValue, exists := c.Get("db")
-	if !exists {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection error"})
-		return
-	}
-	db := dbValue.(*sql.DB)
+		dbValue, exists := c.Get("db")
+		if !exists {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection error"})
+			return
+		}
+		db := dbValue.(*sql.DB)
 
-	var hashedPassword string
-	err := db.QueryRow("SELECT password FROM users WHERE username = $1", creds.Username).Scan(&hashedPassword)
-	if err != nil {
-		if err == sql.ErrNoRows {
+		var hashedPassword string
+		err := db.QueryRow("SELECT password FROM users WHERE username = $1", creds.Username).Scan(&hashedPassword)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+			return
+		}
+
+		err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(creds.Password))
+		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
-		return
-	}
 
-	err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(creds.Password))
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
-		return
-	}
+		token, err := generateJWT(creds.Username, jwtKey)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error generating token"})
+			return
+		}
 
-	token, err := generateJWT(creds.Username)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error generating token"})
-		return
+		c.JSON(http.StatusOK, gin.H{"token": token})
 	}
-
-	c.JSON(http.StatusOK, gin.H{"token": token})
 }
 
-func generateJWT(username string) (string, error) {
+func generateJWT(username string, jwtKey []byte) (string, error) {
 	expirationTime := time.Now().Add(24 * time.Hour)
 	claims := &Claims{
 		Username: username,
@@ -117,7 +116,7 @@ func generateJWT(username string) (string, error) {
 	return token.SignedString(jwtKey)
 }
 
-func AuthMiddleware() gin.HandlerFunc {
+func AuthMiddleware(jwtKey []byte) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
