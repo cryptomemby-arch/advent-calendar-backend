@@ -23,10 +23,10 @@ func Router(r *gin.Engine, databaseConn *sql.DB, cfg *configs.Config) {
 		authGroup.POST("/login", handlers.Login(jwtByteKey))
 		authGroup.POST("/register", handlers.Register)
 
-		// authGroup.GET("/google/login", handlers.GoogleLogin)
-		// authGroup.GET("/google/callback", handlers.GoogleCallback)
-		// authGroup.GET("/microsoft/login", handlers.microsoftLogin)
-		// authGroup.GET("/microsoft/callback", handlers.microsoftCallback)
+		authGroup.GET("/google/login", handlers.GoogleLogin(cfg))
+		authGroup.GET("/google/callback", handlers.GoogleCallback(cfg, jwtByteKey))
+		authGroup.GET("/microsoft/login", handlers.MicrosoftLogin(cfg))
+		authGroup.GET("/microsoft/callback", handlers.MicrosoftCallback(cfg, jwtByteKey))
 
 	}
 

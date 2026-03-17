@@ -8,16 +8,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type Credentials struct {
-	Username string `json:"username" binding:"required"`
+	Username string `json:"name" binding:"required"`
+	Email    string `json:"email" binding:"required"`
 	Password string `json:"password" binding:"required"`
+	Country  string `json:"country" binding:"required"`
 }
 
 type Claims struct {
-	Username string `json:"username"`
+	Username string `json:"name"`
 	jwt.RegisteredClaims
 }
 
@@ -36,13 +39,12 @@ func Register(c *gin.Context) {
 	db := dbValue.(*sql.DB)
 
 	var existingUser string
-	// Using $1 for PostgreSQL (change to ? if using MySQL)
-	err := db.QueryRow("SELECT username FROM users WHERE username = $1", creds.Username).Scan(&existingUser)
+	err := db.QueryRow("SELECT username FROM users WHERE username = $1 OR email = $2", creds.Username, creds.Email).Scan(&existingUser)
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "User already exists"})
 		return
 	} else if err != sql.ErrNoRows {
-		// TODO: Log the actual 'err' here using your logger package for internal debugging
+		zap.L().Error("Database error while checking a user")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
 	}
@@ -53,8 +55,9 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	_, err = db.Exec("INSERT INTO users (username, password) VALUES ($1, $2)", creds.Username, string(hashedPassword))
+	_, err = db.Exec("INSERT INTO users (username, email, password, country) VALUES ($1, $2, $3, $4)", creds.Username, creds.Email, string(hashedPassword), creds.Country)
 	if err != nil {
+		zap.L().Error("Database error while creating a user")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
 	}
@@ -84,6 +87,7 @@ func Login(jwtKey []byte) gin.HandlerFunc {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 				return
 			}
+			zap.L().Error("Database error while login")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
