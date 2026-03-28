@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -10,7 +10,19 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
+
+type User struct {
+	ID        uint   `gorm:"primaryKey"`
+	Username  string `gorm:"uniqueIndex;not null"`
+	Email     string `gorm:"uniqueIndex;not null"`
+	Password  string `gorm:"not null"`
+	Country   string `gorm:"not null"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+}
 
 type Credentials struct {
 	Username string `json:"name" binding:"required"`
@@ -19,7 +31,13 @@ type Credentials struct {
 	Country  string `json:"country" binding:"required"`
 }
 
+type LoginRequest struct {
+	Username string `json:"name" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+
 type Claims struct {
+	UserID   uint   `json:"userid"`
 	Username string `json:"name"`
 	jwt.RegisteredClaims
 }
@@ -36,15 +54,15 @@ func Register(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection error"})
 		return
 	}
-	db := dbValue.(*sql.DB)
+	db := dbValue.(*gorm.DB)
 
-	var existingUser string
-	err := db.QueryRow("SELECT username FROM users WHERE username = $1 OR email = $2", creds.Username, creds.Email).Scan(&existingUser)
+	var existingUser User
+	err := db.Where("username = ? OR email = ?", creds.Username, creds.Email).First(&existingUser).Error
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "User already exists"})
 		return
-	} else if err != sql.ErrNoRows {
-		zap.L().Error("Database error while checking a user")
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		zap.L().Error("Database error while checking user", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
 	}
@@ -55,9 +73,15 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	_, err = db.Exec("INSERT INTO users (username, email, password, country) VALUES ($1, $2, $3, $4)", creds.Username, creds.Email, string(hashedPassword), creds.Country)
-	if err != nil {
-		zap.L().Error("Database error while creating a user")
+	newUser := User{
+		Username: creds.Username,
+		Email:    creds.Email,
+		Password: string(hashedPassword),
+		Country:  creds.Country,
+	}
+
+	if err := db.Create(&newUser).Error; err != nil {
+		zap.L().Error("Database error while creating user", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
 	}
@@ -67,8 +91,8 @@ func Register(c *gin.Context) {
 
 func Login(jwtKey []byte) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var creds Credentials
-		if err := c.ShouldBindJSON(&creds); err != nil {
+		var req LoginRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
 			return
 		}
@@ -78,27 +102,27 @@ func Login(jwtKey []byte) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection error"})
 			return
 		}
-		db := dbValue.(*sql.DB)
+		db := dbValue.(*gorm.DB)
 
-		var hashedPassword string
-		err := db.QueryRow("SELECT password FROM users WHERE username = $1", creds.Username).Scan(&hashedPassword)
+		var user User
+		err := db.Where("username = ?", req.Username).First(&user).Error
 		if err != nil {
-			if err == sql.ErrNoRows {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 				return
 			}
-			zap.L().Error("Database error while login")
+			zap.L().Error("Database error while login", zap.Error(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
 
-		err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(creds.Password))
+		err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 			return
 		}
 
-		token, err := generateJWT(creds.Username, jwtKey)
+		token, err := generateJWT(user.ID, user.Username, jwtKey)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error generating token"})
 			return
@@ -108,9 +132,10 @@ func Login(jwtKey []byte) gin.HandlerFunc {
 	}
 }
 
-func generateJWT(username string, jwtKey []byte) (string, error) {
+func generateJWT(userID uint, username string, jwtKey []byte) (string, error) {
 	expirationTime := time.Now().Add(24 * time.Hour)
 	claims := &Claims{
+		UserID:   userID,
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expirationTime),
@@ -149,6 +174,7 @@ func AuthMiddleware(jwtKey []byte) gin.HandlerFunc {
 			return
 		}
 
+		c.Set("userID", claims.UserID)
 		c.Set("username", claims.Username)
 		c.Next()
 	}

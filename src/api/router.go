@@ -1,15 +1,15 @@
 package api
 
 import (
-	"database/sql"
 	"net/http"
 
 	"github.com/advent-calendar-backend/src/api/handlers"
 	"github.com/advent-calendar-backend/src/configs"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
-func Router(r *gin.Engine, databaseConn *sql.DB, cfg *configs.Config) {
+func Router(r *gin.Engine, databaseConn *gorm.DB, cfg *configs.Config) {
 
 	r.Use(func(c *gin.Context) {
 		c.Set("db", databaseConn)
@@ -75,12 +75,15 @@ func Router(r *gin.Engine, databaseConn *sql.DB, cfg *configs.Config) {
 		usersGroup.GET("", func(c *gin.Context) {})
 	}
 
+	photoH := handlers.NewPhotoHandler(databaseConn, cfg)
+
 	photosGroup := protected.Group("/photos")
 	{
-		photosGroup.GET("/upload-signature", func(c *gin.Context) {})
-		photosGroup.POST("", func(c *gin.Context) {})
-		photosGroup.GET("", func(c *gin.Context) {})
-		photosGroup.DELETE("/:photoId", func(c *gin.Context) {})
+		photosGroup.GET("/upload-signature", photoH.GetUploadSignature())
+		photosGroup.GET("", photoH.GetPhotos())
+		photosGroup.GET("/limit-status", photoH.GetLimitStatus())
+		photosGroup.POST("", photoH.CreatePhoto())
+		photosGroup.DELETE("/:photoId", photoH.DeletePhoto())
 	}
 
 	recapGroup := protected.Group("/recap")

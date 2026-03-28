@@ -1,0 +1,16 @@
+{"level":"error","ts":1774601441.9305797,"caller":"database/connect.go:16","msg":"Error while connecting to database"}
+{"level":"error","ts":1774601505.634518,"caller":"database/connect.go:16","msg":"Error while connecting to database"}
+{"level":"fatal","ts":1774601591.0385373,"caller":"database/connect.go:30","msg":"Error while connecting to database","error":"dial tcp: lookup port=0: no such host"}
+{"level":"fatal","ts":1774601730.2625263,"caller":"database/connect.go:30","msg":"Error while connecting to database","error":"dial tcp: lookup port=0: no such host"}
+{"level":"fatal","ts":1774601740.6974115,"caller":"database/connect.go:30","msg":"Error while connecting to database","error":"dial tcp: lookup port=0: no such host"}
+{"level":"fatal","ts":1774601764.8591921,"caller":"database/connect.go:30","msg":"Error while connecting to database","error":"dial tcp: lookup port=0: no such host"}
+{"level":"fatal","ts":1774601780.6666958,"caller":"database/connect.go:30","msg":"Error while connecting to database","error":"dial tcp: lookup port=0: no such host"}
+{"level":"warn","ts":1774601934.7755394,"caller":"configs/readconf.go:57","msg":"Could not read config.env, trying environment variables","error":"open config.env: no such file or directory"}
+{"level":"fatal","ts":1774601934.77589,"caller":"database/connect.go:30","msg":"Error while connecting to database","error":"dial tcp: lookup port=0: no such host"}
+{"level":"warn","ts":1774601965.549213,"caller":"configs/readconf.go:57","msg":"Could not read config.env, trying environment variables","error":"open ./config.env: no such file or directory"}
+{"level":"fatal","ts":1774601965.5494998,"caller":"database/connect.go:30","msg":"Error while connecting to database","error":"dial tcp: lookup port=0: no such host"}
+{"level":"fatal","ts":1774602068.3032553,"caller":"database/connect.go:30","msg":"Error while connecting to database","error":"EOF"}
+{"level":"fatal","ts":1774602089.8297071,"caller":"database/connect.go:30","msg":"Error while connecting to database","error":"EOF"}
+{"level":"fatal","ts":1774602203.8267024,"caller":"database/connect.go:30","msg":"Error while connecting to database","error":"EOF"}
+{"level":"fatal","ts":1774706702.9951403,"caller":"database/connect.go:19","msg":"Could not connect to database via GORM","error":"failed to connect to `user=postgres database=postgres`:\n\t127.0.0.1:5432 (localhost): failed to receive message: unexpected EOF\n\t[::1]:5432 (localhost): failed to receive message: unexpected EOF"}
+{"level":"fatal","ts":1774706751.8469474,"caller":"database/connect.go:19","msg":"Could not connect to database via GORM","error":"failed to connect to `user=postgres database=postgres`:\n\t127.0.0.1:5432 (localhost): failed to receive message: unexpected EOF\n\t[::1]:5432 (localhost): failed to receive message: unexpected EOF"}

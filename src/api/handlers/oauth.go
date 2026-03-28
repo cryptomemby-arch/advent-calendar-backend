@@ -3,9 +3,9 @@ package handlers
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -15,6 +15,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"golang.org/x/oauth2/microsoft"
+	"gorm.io/gorm"
 )
 
 type GoogleUser struct {
@@ -42,7 +43,7 @@ func getGoogleConfig(cfg *configs.Config) *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     cfg.OauthGoogle.ClientID,
 		ClientSecret: cfg.OauthGoogle.ClientSecret,
-		RedirectURL:  "http://localhost:8080/auth/google/callback",
+		RedirectURL:  fmt.Sprintf("http://%s/auth/google/callback", cfg.Origin.OriginBack),
 		Scopes:       []string{"https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"},
 		Endpoint:     google.Endpoint,
 	}
@@ -52,7 +53,7 @@ func getMicrosoftConfig(cfg *configs.Config) *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     cfg.OauthMicrosoft.ClientID,
 		ClientSecret: cfg.OauthMicrosoft.ClientSecret,
-		RedirectURL:  "http://localhost:8080/auth/microsoft/callback",
+		RedirectURL:  fmt.Sprintf("http://%s/auth/microsoft/callback", cfg.Origin.OriginBack),
 		Scopes:       []string{"openid", "profile", "email", "User.Read"},
 		Endpoint:     microsoft.AzureADEndpoint("common"),
 	}
@@ -81,11 +82,17 @@ func GoogleCallback(cfg *configs.Config, jwtKey []byte) gin.HandlerFunc {
 			return
 		}
 
-		resp, _ := http.Get("https://www.googleapis.com/oauth2/v2/userinfo?access_token=" + token.AccessToken)
+		resp, err := http.Get("https://www.googleapis.com/oauth2/v2/userinfo?access_token=" + token.AccessToken)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user info"})
+			return
+		}
+		defer resp.Body.Close()
+
 		var gUser GoogleUser
 		json.NewDecoder(resp.Body).Decode(&gUser)
 
-		processOAuthUser(c, gUser.Email, gUser.Name, jwtKey)
+		processOAuthUser(c, gUser.Email, gUser.Name, jwtKey, cfg)
 	}
 }
 
@@ -114,7 +121,13 @@ func MicrosoftCallback(cfg *configs.Config, jwtKey []byte) gin.HandlerFunc {
 		}
 
 		client := conf.Client(context.Background(), token)
-		resp, _ := client.Get("https://graph.microsoft.com/v1.0/me")
+		resp, err := client.Get("https://graph.microsoft.com/v1.0/me")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user info"})
+			return
+		}
+		defer resp.Body.Close()
+
 		var msUser MicrosoftUser
 		json.NewDecoder(resp.Body).Decode(&msUser)
 
@@ -123,29 +136,49 @@ func MicrosoftCallback(cfg *configs.Config, jwtKey []byte) gin.HandlerFunc {
 			email = msUser.UserPrincipalName
 		}
 
-		processOAuthUser(c, email, msUser.DisplayName, jwtKey)
+		processOAuthUser(c, email, msUser.DisplayName, jwtKey, cfg)
 	}
 }
 
-func processOAuthUser(c *gin.Context, email, name string, jwtKey []byte) {
-	db := c.MustGet("db").(*sql.DB)
+// --- LOGIC ---
 
-	var username string
-	err := db.QueryRow("SELECT username FROM users WHERE email = $1", email).Scan(&username)
+func processOAuthUser(c *gin.Context, email, name string, jwtKey []byte, cfg *configs.Config) {
+	db := c.MustGet("db").(*gorm.DB)
 
-	if err == sql.ErrNoRows {
-		username = email
-		_, err = db.Exec("INSERT INTO users (username, email, password, country) VALUES ($1, $2, $3, $4)",
-			username, email, "", "Unknown")
-		if err != nil {
-			zap.L().Error("DB Error", zap.Error(err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "DB error"})
+	var user User
+	err := db.Where("email = ?", email).First(&user).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			user = User{
+				Username: name,
+				Email:    email,
+				Password: "",
+				Country:  "Unknown",
+			}
+
+			if user.Username == "" {
+				user.Username = email
+			}
+
+			if err := db.Create(&user).Error; err != nil {
+				zap.L().Error("DB Error while creating OAuth user", zap.Error(err))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+				return
+			}
+		} else {
+			zap.L().Error("DB Error while finding OAuth user", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
 	}
 
-	finalToken, _ := generateJWT(username, jwtKey)
+	finalToken, err := generateJWT(user.ID, user.Username, jwtKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Token generation failed"})
+		return
+	}
 
-	frontendURL := fmt.Sprintf("http://localhost:3000/login-success?token=%s", finalToken)
+	frontendURL := fmt.Sprintf("http://%s/login-success?token=%s", cfg.Origin.OriginFront, finalToken)
 	c.Redirect(http.StatusTemporaryRedirect, frontendURL)
 }
