@@ -1,6 +1,8 @@
 package main
 
 import (
+	"strings"
+
 	"github.com/advent-calendar-backend/src/api"
 	"github.com/advent-calendar-backend/src/configs"
 	"github.com/advent-calendar-backend/src/database"
@@ -17,9 +19,13 @@ func main() {
 	databaseConn := database.ConnectPostgreSql(cfg)
 
 	r := gin.Default()
+	origin := cfg.Origin.OriginFront
+	if !strings.HasPrefix(origin, "http://") && !strings.HasPrefix(origin, "https://") {
+		origin = "http://" + origin
+	}
 	config := cors.DefaultConfig()
-	config.AllowOrigins = []string{cfg.Origin.OriginFront}
+	config.AllowOrigins = []string{origin}
 	r.Use(cors.New(config))
-	r.Run()
 	api.Router(r, databaseConn, cfg)
+	r.Run(cfg.Origin.OriginBack)
 }
