@@ -1,8 +1,6 @@
 package api
 
 import (
-	"net/http"
-
 	"github.com/advent-calendar-backend/src/api/handlers"
 	"github.com/advent-calendar-backend/src/configs"
 	"github.com/gin-gonic/gin"
@@ -35,44 +33,46 @@ func Router(r *gin.Engine, databaseConn *gorm.DB, cfg *configs.Config) {
 
 	apiGroup := protected.Group("/api")
 	{
-		// Пример того, как это будет выглядеть:
-		// apiGroup.GET("/profile", handlers.GetProfile)
-		apiGroup.GET("/profile", func(c *gin.Context) {})
-		apiGroup.PUT("/profile", func(c *gin.Context) {})
-		apiGroup.PUT("/profile/theme", func(c *gin.Context) {})
-		apiGroup.GET("/profile/badges", func(c *gin.Context) {})
+		profileService := handlers.NewProfileService(databaseConn)
+		apiGroup.GET("/profile", profileService.GetProfile)
+		apiGroup.PUT("/profile", profileService.UpdateProfile)
+		apiGroup.PUT("/profile/theme", profileService.UpdateThemePreference)
+		apiGroup.GET("/profile/badges", profileService.GetProfileBadges)
 	}
 
 	challengesGroup := protected.Group("/challenges")
 	{
-		challengesGroup.POST("", func(c *gin.Context) {})
-		challengesGroup.GET("", func(c *gin.Context) {})
-		challengesGroup.GET("/category/:category", func(c *gin.Context) {})
-		challengesGroup.GET("/today", func(c *gin.Context) {})
-		challengesGroup.GET("/today/preview", func(c *gin.Context) {})
+		challengeService := handlers.NewChallengeService(databaseConn)
+		challengesGroup.POST("", challengeService.CreateChallengeHandler)
+		challengesGroup.GET("", challengeService.GetAllChallengesHandler)
+		challengesGroup.GET("/category/:category", challengeService.GetActiveChallengesByCategoryHandler)
+		challengesGroup.GET("/today", challengeService.GetTodayChallengeHandler)
+		challengesGroup.GET("/today/preview", challengeService.GetTodayChallengePreviewHandler)
 	}
 
+	userChallengesService := handlers.NewUserChallengeService(databaseConn, handlers.NewBadgeService())
 	userChallengesGroup := protected.Group("/user-challenges")
 	{
-		userChallengesGroup.POST("/join", func(c *gin.Context) {})
-		userChallengesGroup.GET("/user/:userId", func(c *gin.Context) {})
-		userChallengesGroup.GET("/user/:userId/status", func(c *gin.Context) {})
-		userChallengesGroup.GET("/user/:userId/progress", func(c *gin.Context) {})
-		userChallengesGroup.GET("/daily", func(c *gin.Context) {})
-		userChallengesGroup.POST("/daily/confirm", func(c *gin.Context) {})
-		userChallengesGroup.POST("/start", func(c *gin.Context) {})
-		userChallengesGroup.GET("/challenge/:challengeId", func(c *gin.Context) {})
-		userChallengesGroup.GET("/:id", func(c *gin.Context) {})
-		userChallengesGroup.PUT("/:id/complete", func(c *gin.Context) {})
-		userChallengesGroup.PUT("/:id/status", func(c *gin.Context) {})
-		userChallengesGroup.DELETE("/clear-pending", func(c *gin.Context) {})
+		userChallengesGroup.POST("/join", userChallengesService.JoinChallenge)
+		userChallengesGroup.GET("/user/:userId", userChallengesService.GetUserChallenges)
+		userChallengesGroup.GET("/user/:userId/status", userChallengesService.GetUserChallengesByStatus)
+		userChallengesGroup.GET("/user/:userId/progress", userChallengesService.GetUserProgress)
+		userChallengesGroup.GET("/daily", userChallengesService.GetOrAssignDailyChallenge)
+		userChallengesGroup.POST("/daily/confirm", userChallengesService.ConfirmDailyChallenge)
+		userChallengesGroup.POST("/start", userChallengesService.StartChallenge)
+		userChallengesGroup.GET("/challenge/:challengeId", userChallengesService.GetChallengeParticipants)
+		userChallengesGroup.GET("/:id", userChallengesService.GetUserChallengeByID)
+		userChallengesGroup.PUT("/:id/complete", userChallengesService.MarkAsCompleted)
+		userChallengesGroup.PUT("/:id/status", userChallengesService.UpdateStatus)
+		userChallengesGroup.DELETE("/clear-pending", userChallengesService.ClearPendingChallenges)
 	}
 
 	usersGroup := protected.Group("/users")
 	{
-		usersGroup.POST("", func(c *gin.Context) {})
-		usersGroup.GET("/:id", func(c *gin.Context) {})
-		usersGroup.GET("", func(c *gin.Context) {})
+		userService := handlers.NewUserService(databaseConn)
+		usersGroup.POST("", userService.CreateUserHandler)
+		usersGroup.GET("/:id", userService.GetUserByIDHandler)
+		usersGroup.GET("", userService.GetUsersHandler)
 	}
 
 	photoH := handlers.NewPhotoHandler(databaseConn, cfg)
@@ -88,27 +88,21 @@ func Router(r *gin.Engine, databaseConn *gorm.DB, cfg *configs.Config) {
 
 	recapGroup := protected.Group("/recap")
 	{
-		recapGroup.GET("/monthly", func(c *gin.Context) {})
+		recapService := handlers.NewRecapService(databaseConn)
+		recapGroup.GET("/monthly", recapService.GetMonthlyRecap)
 	}
 
 	timeCapsulesGroup := protected.Group("/time-capsules")
 	{
-		timeCapsulesGroup.POST("", func(c *gin.Context) {})
-		timeCapsulesGroup.GET("/revealed", func(c *gin.Context) {})
-		timeCapsulesGroup.GET("/pending", func(c *gin.Context) {})
+		timeCapsuleService := handlers.NewTimeCapsuleService(databaseConn)
+		timeCapsulesGroup.POST("", timeCapsuleService.CreateCapsule)
+		timeCapsulesGroup.GET("/revealed", timeCapsuleService.GetRevealedCapsules)
+		timeCapsulesGroup.GET("/pending", timeCapsuleService.GetPendingCapsules)
 	}
 
 	pulseGroup := protected.Group("/pulse")
 	{
-		pulseGroup.GET("/today", func(c *gin.Context) {})
+		pulseService := handlers.NewPulseService(databaseConn)
+		pulseGroup.GET("/today", pulseService.GetTodayPulse)
 	}
-
-	// Тестовый роут, чтобы быстро проверить, работает ли токен
-	protected.GET("/test-auth", func(c *gin.Context) {
-		username, _ := c.Get("username")
-		c.JSON(http.StatusOK, gin.H{
-			"message": "Ура! Токен работает, доступ разрешен.",
-			"user":    username,
-		})
-	})
 }

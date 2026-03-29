@@ -13,15 +13,31 @@ import (
 	"gorm.io/gorm"
 )
 
+type ThemePreference string
+
+const (
+	ThemePreferenceSystem ThemePreference = "SYSTEM"
+	ThemePreferenceLight  ThemePreference = "LIGHT"
+	ThemePreferenceDark   ThemePreference = "DARK"
+)
+
 type User struct {
-	ID        uint   `gorm:"primaryKey"`
-	Username  string `gorm:"uniqueIndex;not null"`
-	Email     string `gorm:"uniqueIndex;not null"`
-	Password  string `gorm:"not null"`
-	Country   string `gorm:"not null"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt gorm.DeletedAt `gorm:"index"`
+	ID              uint            `gorm:"primaryKey"`
+	Username        string          `gorm:"uniqueIndex;not null"`
+	Email           string          `gorm:"uniqueIndex;not null"`
+	Password        string          `gorm:"not null"`
+	AuthProvider    string          `gorm:"type:varchar(100);index"`
+	AuthSubject     string          `gorm:"type:varchar(255);index"`
+	Name            string          `gorm:"type:text"`
+	Avatar          string          `gorm:"type:text"`
+	Country         string          `gorm:"not null"`
+	Streak          int             `gorm:"default:0"`
+	TotalPoints     int64           `gorm:"default:0"`
+	ThemePreference ThemePreference `gorm:"type:text;default:'SYSTEM'"`
+	EarnedBadgeIDs  []string        `gorm:"type:text[];default:'{}'"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       gorm.DeletedAt `gorm:"index"`
 }
 
 type Credentials struct {
@@ -59,10 +75,11 @@ func Register(c *gin.Context) {
 	var existingUser User
 	err := db.Where("username = ? OR email = ?", creds.Username, creds.Email).First(&existingUser).Error
 	if err == nil {
+		zap.L().Info("User already exists", zap.String("username", creds.Username), zap.String("email", creds.Email))
 		c.JSON(http.StatusConflict, gin.H{"error": "User already exists"})
 		return
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		zap.L().Error("Database error while checking user", zap.Error(err))
+		zap.L().Error("Database error while checking user", zap.Error(err), zap.String("username", creds.Username), zap.String("email", creds.Email))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
 	}
@@ -81,11 +98,12 @@ func Register(c *gin.Context) {
 	}
 
 	if err := db.Create(&newUser).Error; err != nil {
-		zap.L().Error("Database error while creating user", zap.Error(err))
+		zap.L().Error("Database error while creating user", zap.Error(err), zap.String("username", newUser.Username), zap.String("email", newUser.Email))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
 	}
 
+	zap.L().Info("New user registered", zap.Uint("userId", newUser.ID), zap.String("username", newUser.Username), zap.String("email", newUser.Email))
 	c.JSON(http.StatusCreated, gin.H{"message": "User successfully registered"})
 }
 
@@ -108,16 +126,18 @@ func Login(jwtKey []byte) gin.HandlerFunc {
 		err := db.Where("username = ?", req.Username).First(&user).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				zap.L().Warn("Login attempt with non-existing username", zap.String("username", req.Username))
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 				return
 			}
-			zap.L().Error("Database error while login", zap.Error(err))
+			zap.L().Error("Database error while login", zap.Error(err), zap.String("username", req.Username))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
 
 		err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
 		if err != nil {
+			zap.L().Warn("Invalid password attempt", zap.String("username", req.Username))
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 			return
 		}
@@ -128,6 +148,7 @@ func Login(jwtKey []byte) gin.HandlerFunc {
 			return
 		}
 
+		zap.L().Info("User logged in", zap.Uint("userId", user.ID), zap.String("username", user.Username))
 		c.JSON(http.StatusOK, gin.H{"token": token})
 	}
 }
